@@ -15,6 +15,7 @@ backend/.env
 backend/.env.local
 frontend/.env
 frontend/.env.local
+supabase/.temp/
 
 # IDEs and editors
 /.idea
