@@ -5,11 +5,6 @@ import { supabase } from '@/services/supabase.client';
 export const UNAUTHORIZED_EVENT = 'unauthorized';
 export const authEvents = new EventTarget();
 
-// Export function to clear session cache (called when auth state changes)
-export const clearSessionCache = () => {
-  sessionCache = null;
-};
-
 // Cache session to avoid calling getSession() on every request
 let sessionCache: { session: Session | null; timestamp: number; expiresAt: number } | null = null;
 
@@ -28,51 +23,63 @@ const getTokenExpiration = (session: Session | null): number => {
   }
 };
 
-const getCachedSession = async () => {
-  const now = Date.now();
+// Export function to update session cache (called when auth state changes)
+export const updateSessionCache = (session: Session | null) => {
+  if (session) {
+    const expiresAt = getTokenExpiration(session);
+    sessionCache = {
+      session,
+      timestamp: Date.now(),
+      expiresAt: expiresAt || Date.now() + 300000,
+    };
+  } else {
+    sessionCache = null;
+  }
+};
 
-  // Use cached session if it's still valid and not expired
+// Export function to clear session cache (legacy, use updateSessionCache instead)
+export const clearSessionCache = () => {
+  sessionCache = null;
+};
+
+const getCachedSession = async () => {
+  // Use cached session if available - it's kept in sync by the auth store
+  // Only fetch from Supabase if we don't have a cache at all
   if (sessionCache) {
+    const now = Date.now();
     const isCacheValid = now < sessionCache.expiresAt;
     const isRecent = now - sessionCache.timestamp < 300000; // 5 minutes max cache age
 
     if (isCacheValid && isRecent) {
       return sessionCache.session;
     }
-    // Cache is expired or old, but keep it for fallback if fetch fails
+    // Cache might be expired, but return it anyway as fallback
+    // The auth store will update it when Supabase refreshes
+    return sessionCache.session;
   }
 
-  // Fetch fresh session
-  const cachedSessionForFallback = sessionCache?.session;
+  // No cache at all - try to fetch once (but don't do this on every request)
+  // This should rarely happen since the auth store should have initialized the cache
   try {
     const sessionPromise = supabase.auth.getSession();
     const timeoutPromise = new Promise<never>((_, reject) => {
       setTimeout(() => {
         reject(new Error('Session fetch timeout'));
-      }, 5000); // 5 second timeout
+      }, 3000); // Shorter timeout - only use as last resort
     });
 
     const { data } = await Promise.race([sessionPromise, timeoutPromise]);
-
     const session = data?.session ?? null;
-    const expiresAt = getTokenExpiration(session);
 
-    // Update cache with expiration time
-    sessionCache = {
-      session,
-      timestamp: now,
-      expiresAt: expiresAt || now + 300000, // Fallback to 5 minutes if we can't determine expiration
-    };
-
-    return session;
-  } catch (error) {
-    console.warn('Failed to get session:', error);
-    // Return cached session if available, even if expired (better than nothing)
-    // This prevents losing auth state when localStorage is temporarily blocked
-    if (cachedSessionForFallback) {
-      console.log('Using cached session due to fetch failure');
-      return cachedSessionForFallback;
+    if (session) {
+      updateSessionCache(session);
+      return session;
     }
+
+    return null;
+  } catch {
+    // If fetch fails, return null - don't fallback to stale cache
+    // The auth store will handle session refresh
     return null;
   }
 };

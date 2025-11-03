@@ -6,6 +6,7 @@ import apiClient, {
   UNAUTHORIZED_EVENT,
   authEvents,
   clearSessionCache,
+  updateSessionCache,
   type ApiError,
 } from '@/services/api.client';
 import { supabase } from '@/services/supabase.client';
@@ -87,6 +88,9 @@ export const useAuthStore = defineStore('auth', () => {
       session.value = currentSession ?? null;
       supabaseUser.value = currentSession?.user ?? null;
 
+      // Sync session to API client cache
+      updateSessionCache(currentSession ?? null);
+
       return currentSession;
     } catch (err) {
       console.error('Unexpected error while hydrating session', err);
@@ -161,6 +165,9 @@ export const useAuthStore = defineStore('auth', () => {
         if (newSession || event === 'SIGNED_OUT') {
           session.value = newSession;
           supabaseUser.value = newSession?.user ?? null;
+
+          // Sync session to API client cache whenever it changes
+          updateSessionCache(newSession ?? null);
         }
 
         if (newSession) {
