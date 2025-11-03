@@ -116,7 +116,7 @@ export class HostawayClient {
     this.automationTimezone =
       this.configService.get<string>('HOSTAWAY_AUTOMATION_TIMEZONE') ?? 'Europe/London';
     this.maxReservationPages = Number(
-      this.configService.get<string>('HOSTAWAY_PAGINATION_LIMIT') ?? 10,
+      this.configService.get<string>('HOSTAWAY_PAGINATION_LIMIT') ?? 50,
     );
   }
 
@@ -204,12 +204,12 @@ export class HostawayClient {
     let page = 1;
     let nextPageToken: string | undefined;
     const limit = 100;
-    // Default to 20 pages (2000 reservations) to ensure we fetch all reservations
-    // For 184 reservations, this is more than enough
+    // Default to 50 pages (5000 reservations) to ensure we fetch all reservations
+    // This should handle most property management companies with large portfolios
     const maxPages =
       Number.isFinite(this.maxReservationPages) && this.maxReservationPages > 0
         ? this.maxReservationPages
-        : 20;
+        : 50;
 
     while (page <= maxPages) {
       try {

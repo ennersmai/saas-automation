@@ -13,27 +13,14 @@ primary_region = "lhr"
   NODE_ENV = "production"
   PORT = "8080"
 
+[processes]
+  app = "node dist/backend/main.js"
+
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = false
+  auto_stop_machines = false  # Must stay running for scheduled tasks (cron jobs)
   auto_start_machines = true
-  min_machines_running = 1
+  min_machines_running = 1  # Keep 1 machine running for scheduled tasks and webhooks
   processes = ["app"]
-
-[[services]]
-  protocol = "tcp"
-  internal_port = 8080
-
-  [[services.ports]]
-    handlers = ["http"]
-    port = 80
-    force_https = true
-
-  [[services.ports]]
-    handlers = ["tls", "http"]
-    port = 443
-
-[processes]
-  app = "node dist/backend/main.js"
 

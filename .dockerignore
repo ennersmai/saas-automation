@@ -8,8 +8,11 @@ dist
 .env
 .env.local
 .env.*.local
-nx.json
 .DS_Store
 coverage
 .nyc_output
+logs
+frontend
+frontend-e2e
+backend-e2e
 

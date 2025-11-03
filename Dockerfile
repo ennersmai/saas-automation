@@ -8,8 +8,7 @@ COPY package*.json ./
 COPY nx.json ./
 COPY tsconfig.base.json ./
 
-# Copy workspace files
-COPY backend/package.json ./backend/
+# Copy workspace package.json files (Nx monorepo)
 COPY shared-types/package.json ./shared-types/
 
 # Install all dependencies (needed for build)
@@ -20,7 +19,7 @@ COPY backend ./backend
 COPY shared-types ./shared-types
 
 # Build the backend
-RUN npm run build -- --project=backend
+RUN npm run build
 
 # Remove dev dependencies to reduce image size
 RUN npm prune --production

@@ -1,5 +1,5 @@
 {
-  "buildCommand": "npm run build -- --project=frontend",
+  "buildCommand": "npx nx build frontend",
   "outputDirectory": "dist/frontend",
   "devCommand": "npm run start:frontend",
   "installCommand": "npm ci",

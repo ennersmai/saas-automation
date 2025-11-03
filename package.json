@@ -4,6 +4,7 @@
   "license": "MIT",
   "scripts": {
     "build": "nx run-many --target=build --all",
+    "build:frontend": "nx build frontend",
     "dev": "nx run-many --target=serve --projects=backend,frontend --parallel",
     "format": "nx format:write",
     "format:check": "nx format:check",
