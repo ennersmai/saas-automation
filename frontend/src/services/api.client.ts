@@ -1,8 +1,51 @@
 import axios, { type AxiosError, type AxiosInstance } from 'axios';
+import type { Session } from '@supabase/supabase-js';
 import { supabase } from '@/services/supabase.client';
 
 export const UNAUTHORIZED_EVENT = 'unauthorized';
 export const authEvents = new EventTarget();
+
+// Export function to clear session cache (called when auth state changes)
+export const clearSessionCache = () => {
+  sessionCache = null;
+};
+
+// Cache session to avoid calling getSession() on every request
+let sessionCache: { session: Session | null; timestamp: number } | null = null;
+const SESSION_CACHE_TTL = 30000; // 30 seconds cache
+
+const getCachedSession = async () => {
+  const now = Date.now();
+
+  // Use cached session if it's still valid
+  if (sessionCache && now - sessionCache.timestamp < SESSION_CACHE_TTL) {
+    return sessionCache.session;
+  }
+
+  // Fetch fresh session
+  try {
+    const sessionPromise = supabase.auth.getSession();
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error('Session fetch timeout'));
+      }, 5000); // 5 second timeout
+    });
+
+    const { data } = await Promise.race([sessionPromise, timeoutPromise]);
+
+    // Update cache
+    sessionCache = {
+      session: data?.session ?? null,
+      timestamp: now,
+    };
+
+    return data?.session ?? null;
+  } catch (error) {
+    console.warn('Failed to get session:', error);
+    // Return cached session if available, even if expired
+    return sessionCache?.session ?? null;
+  }
+};
 
 const apiClient: AxiosInstance = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL ?? '/api',
@@ -10,29 +53,39 @@ const apiClient: AxiosInstance = axios.create({
   timeout: 35000, // 35 seconds timeout (slightly longer than database 30s timeout)
 });
 
-apiClient.interceptors.request.use(async (config) => {
-  if (typeof window === 'undefined') {
+apiClient.interceptors.request.use(
+  async (config) => {
+    if (typeof window === 'undefined') {
+      return config;
+    }
+
+    try {
+      const session = await getCachedSession();
+      const token = session?.access_token;
+      if (token) {
+        config.headers = config.headers ?? {};
+        config.headers.Authorization = `Bearer ${token}`;
+      }
+    } catch (error) {
+      // If session fetch fails or times out, log but don't block the request
+      console.warn('Failed to get session for request:', error);
+      // Continue without auth header - the backend will return 401 if needed
+    }
+
     return config;
-  }
-
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  const token = session?.access_token;
-  if (token) {
-    config.headers = config.headers ?? {};
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-
-  return config;
-});
+  },
+  (error) => {
+    // Handle request configuration errors
+    return Promise.reject(error);
+  },
+);
 
 apiClient.interceptors.response.use(
   (response) => response,
   (error: AxiosError) => {
-    // Handle 401 - unauthorized
+    // Handle 401 - unauthorized - clear session cache
     if (error.response?.status === 401 && typeof window !== 'undefined') {
+      sessionCache = null; // Clear cache on unauthorized
       authEvents.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
     }
 

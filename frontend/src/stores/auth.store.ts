@@ -2,7 +2,12 @@ import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 import type { Session, User } from '@supabase/supabase-js';
 import { isAxiosError } from 'axios';
-import apiClient, { UNAUTHORIZED_EVENT, authEvents, type ApiError } from '@/services/api.client';
+import apiClient, {
+  UNAUTHORIZED_EVENT,
+  authEvents,
+  clearSessionCache,
+  type ApiError,
+} from '@/services/api.client';
 import { supabase } from '@/services/supabase.client';
 
 export interface UserProfile {
@@ -130,6 +135,9 @@ export const useAuthStore = defineStore('auth', () => {
 
     if (!unsubscribeAuthState) {
       const { data } = supabase.auth.onAuthStateChange(async (event, newSession) => {
+        // Clear session cache on any auth state change to ensure fresh tokens
+        clearSessionCache();
+
         session.value = newSession;
         supabaseUser.value = newSession?.user ?? null;
 
