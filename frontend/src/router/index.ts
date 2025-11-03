@@ -134,11 +134,29 @@ router.beforeEach(async (to) => {
   const requiresAuth = to.matched.some((record) => record.meta?.requiresAuth);
   const isPublic = to.matched.some((record) => record.meta?.public);
 
-  // Check session directly from Supabase instead of relying on store
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  const isAuthenticated = Boolean(session);
+  // Use the session from the auth store first (it's already cached and initialized)
+  let isAuthenticated = Boolean(authStore.session);
+
+  // If store doesn't have session, try to get it with timeout protection
+  if (!isAuthenticated) {
+    try {
+      const sessionPromise = supabase.auth.getSession();
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => {
+          reject(new Error('Session fetch timeout'));
+        }, 3000); // 3 second timeout for router guard
+      });
+
+      const {
+        data: { session },
+      } = await Promise.race([sessionPromise, timeoutPromise]);
+      isAuthenticated = Boolean(session);
+    } catch (error) {
+      // If session fetch fails, use the store's session value (might be stale but better than nothing)
+      console.warn('Failed to get session in router guard, using store value:', error);
+      isAuthenticated = Boolean(authStore.session);
+    }
+  }
 
   if (requiresAuth && !isAuthenticated) {
     return { name: 'login', query: { redirect: to.fullPath } };

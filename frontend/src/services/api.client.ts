@@ -12,7 +12,7 @@ export const clearSessionCache = () => {
 
 // Cache session to avoid calling getSession() on every request
 let sessionCache: { session: Session | null; timestamp: number } | null = null;
-const SESSION_CACHE_TTL = 30000; // 30 seconds cache
+const SESSION_CACHE_TTL = 60000; // 60 seconds cache (increased to handle tab switching better)
 
 const getCachedSession = async () => {
   const now = Date.now();
@@ -42,8 +42,13 @@ const getCachedSession = async () => {
     return data?.session ?? null;
   } catch (error) {
     console.warn('Failed to get session:', error);
-    // Return cached session if available, even if expired
-    return sessionCache?.session ?? null;
+    // Return cached session if available, even if expired (better than nothing)
+    // This prevents losing auth state when localStorage is temporarily blocked
+    if (sessionCache?.session) {
+      console.log('Using cached session due to fetch failure');
+      return sessionCache.session;
+    }
+    return null;
   }
 };
 
@@ -83,10 +88,21 @@ apiClient.interceptors.request.use(
 apiClient.interceptors.response.use(
   (response) => response,
   (error: AxiosError) => {
-    // Handle 401 - unauthorized - clear session cache
+    // Handle 401 - unauthorized, but only if we actually sent a token
+    // Don't sign out if the request failed due to session fetch timeout
     if (error.response?.status === 401 && typeof window !== 'undefined') {
-      sessionCache = null; // Clear cache on unauthorized
-      authEvents.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+      const hadToken = error.config?.headers?.Authorization;
+
+      // Only trigger unauthorized if we had a token (meaning auth was attempted)
+      // If no token, it might be a session fetch issue, not actual auth failure
+      if (hadToken) {
+        sessionCache = null; // Clear cache on unauthorized
+        authEvents.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+      } else {
+        // No token sent - might be a session fetch issue, try to get fresh session
+        console.warn('401 received without auth token, might be session fetch issue');
+        sessionCache = null; // Clear cache to force refresh on next request
+      }
     }
 
     // Handle timeout errors

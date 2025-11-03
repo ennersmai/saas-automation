@@ -135,11 +135,17 @@ export const useAuthStore = defineStore('auth', () => {
 
     if (!unsubscribeAuthState) {
       const { data } = supabase.auth.onAuthStateChange(async (event, newSession) => {
-        // Clear session cache on any auth state change to ensure fresh tokens
-        clearSessionCache();
+        // Only clear session cache on actual auth events, not on temporary failures
+        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'SIGNED_OUT') {
+          clearSessionCache();
+        }
 
-        session.value = newSession;
-        supabaseUser.value = newSession?.user ?? null;
+        // Only update session if we got a real state change
+        // Don't clear session on temporary fetch failures (newSession might be null temporarily)
+        if (newSession || event === 'SIGNED_OUT') {
+          session.value = newSession;
+          supabaseUser.value = newSession?.user ?? null;
+        }
 
         if (newSession) {
           try {
@@ -164,7 +170,8 @@ export const useAuthStore = defineStore('auth', () => {
           } catch (err) {
             console.error('Failed to refresh user profile after auth state change', err);
           }
-        } else {
+        } else if (event === 'SIGNED_OUT') {
+          // Only clear user data on explicit sign out, not on temporary session fetch failures
           user.value = null;
         }
       });
