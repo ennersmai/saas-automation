@@ -56,6 +56,16 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const logMessage = `${request.method} ${request.url} - ${status} - ${message}`;
     if (status >= 500) {
       this.logger.error(logMessage, exception instanceof Error ? exception.stack : exception);
+    } else if (status === 401) {
+      // 401s are expected on auth routes when no token is provided - only log at debug level
+      const isAuthRoute = request.url.includes('/auth/');
+      if (isAuthRoute && !request.headers.authorization) {
+        // No token provided on auth route - expected, don't log
+        this.logger.debug(logMessage);
+      } else {
+        // Token provided but invalid - log as warning
+        this.logger.warn(logMessage);
+      }
     } else {
       this.logger.warn(logMessage);
     }

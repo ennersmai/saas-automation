@@ -11,18 +11,39 @@ export const clearSessionCache = () => {
 };
 
 // Cache session to avoid calling getSession() on every request
-let sessionCache: { session: Session | null; timestamp: number } | null = null;
-const SESSION_CACHE_TTL = 60000; // 60 seconds cache (increased to handle tab switching better)
+let sessionCache: { session: Session | null; timestamp: number; expiresAt: number } | null = null;
+
+// Helper to get token expiration time (JWT tokens have exp claim in seconds)
+const getTokenExpiration = (session: Session | null): number => {
+  if (!session?.access_token) return 0;
+
+  try {
+    // JWT tokens are base64 encoded JSON - decode the payload
+    const payload = JSON.parse(atob(session.access_token.split('.')[1]));
+    // exp is in seconds, convert to milliseconds
+    return (payload.exp || 0) * 1000;
+  } catch {
+    // If we can't decode, assume it expires in 1 hour (Supabase default)
+    return Date.now() + 3600000;
+  }
+};
 
 const getCachedSession = async () => {
   const now = Date.now();
 
-  // Use cached session if it's still valid
-  if (sessionCache && now - sessionCache.timestamp < SESSION_CACHE_TTL) {
-    return sessionCache.session;
+  // Use cached session if it's still valid and not expired
+  if (sessionCache) {
+    const isCacheValid = now < sessionCache.expiresAt;
+    const isRecent = now - sessionCache.timestamp < 300000; // 5 minutes max cache age
+
+    if (isCacheValid && isRecent) {
+      return sessionCache.session;
+    }
+    // Cache is expired or old, but keep it for fallback if fetch fails
   }
 
   // Fetch fresh session
+  const cachedSessionForFallback = sessionCache?.session;
   try {
     const sessionPromise = supabase.auth.getSession();
     const timeoutPromise = new Promise<never>((_, reject) => {
@@ -33,20 +54,24 @@ const getCachedSession = async () => {
 
     const { data } = await Promise.race([sessionPromise, timeoutPromise]);
 
-    // Update cache
+    const session = data?.session ?? null;
+    const expiresAt = getTokenExpiration(session);
+
+    // Update cache with expiration time
     sessionCache = {
-      session: data?.session ?? null,
+      session,
       timestamp: now,
+      expiresAt: expiresAt || now + 300000, // Fallback to 5 minutes if we can't determine expiration
     };
 
-    return data?.session ?? null;
+    return session;
   } catch (error) {
     console.warn('Failed to get session:', error);
     // Return cached session if available, even if expired (better than nothing)
     // This prevents losing auth state when localStorage is temporarily blocked
-    if (sessionCache?.session) {
+    if (cachedSessionForFallback) {
       console.log('Using cached session due to fetch failure');
-      return sessionCache.session;
+      return cachedSessionForFallback;
     }
     return null;
   }

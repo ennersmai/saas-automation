@@ -95,22 +95,33 @@ export const useAuthStore = defineStore('auth', () => {
   };
 
   const fetchUser = async () => {
+    // If we have no session at all, don't make the call
     if (!session.value) {
       user.value = null;
       return null;
     }
 
+    // If session exists but has no access_token, it might be stale
+    // Still try the call - the API interceptor will handle it
+    // If it fails with 401, we'll handle it gracefully
     try {
       const { data } = await apiClient.get<{ user: UserProfile }>('/auth/me');
       // Backend returns { user: { ... } }, so extract the user object
       user.value = data.user;
       return data.user;
     } catch (err) {
-      if (isAxiosError(err) && err.response?.status === 404) {
-        user.value = null;
-        return null;
+      // Handle 401 and 404 gracefully - these happen when session is invalid/expired
+      if (isAxiosError(err)) {
+        if (err.response?.status === 401 || err.response?.status === 404) {
+          // 401 or 404 means no valid session - clear user but don't throw
+          // This is expected when session expires or is invalid
+          user.value = null;
+          return null;
+        }
       }
 
+      // For other errors (network, timeout, etc.), log but don't clear user
+      // The user might still be valid, just the request failed
       console.error('Failed to fetch user profile', err);
       throw err;
     }
@@ -125,11 +136,16 @@ export const useAuthStore = defineStore('auth', () => {
     attachUnauthorizedListener();
 
     const currentSession = await hydrateSession();
+    // If we have a session (even if it might be stale), try to fetch user
+    // fetchUser will handle 401 gracefully if the session is invalid
     if (currentSession) {
       try {
         await fetchUser();
       } catch (err) {
-        console.warn('Unable to hydrate user profile on bootstrap', err);
+        // fetchUser now handles 401/404 gracefully, so we only log unexpected errors
+        if (!isAxiosError(err) || (err.response?.status !== 401 && err.response?.status !== 404)) {
+          console.warn('Unable to hydrate user profile on bootstrap', err);
+        }
       }
     }
 
@@ -166,9 +182,16 @@ export const useAuthStore = defineStore('auth', () => {
                 }
               }
             }
+            // Try to fetch user - will handle 401 gracefully if session is invalid
             await fetchUser();
           } catch (err) {
-            console.error('Failed to refresh user profile after auth state change', err);
+            // fetchUser now handles 401/404 gracefully, so only log unexpected errors
+            if (
+              !isAxiosError(err) ||
+              (err.response?.status !== 401 && err.response?.status !== 404)
+            ) {
+              console.error('Failed to refresh user profile after auth state change', err);
+            }
           }
         } else if (event === 'SIGNED_OUT') {
           // Only clear user data on explicit sign out, not on temporary session fetch failures
