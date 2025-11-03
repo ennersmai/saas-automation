@@ -1,0 +1,15 @@
+node_modules
+dist
+.git
+.github
+.vscode
+.idea
+*.log
+.env
+.env.local
+.env.*.local
+nx.json
+.DS_Store
+coverage
+.nyc_output
+
