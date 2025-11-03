@@ -1,15 +1,18 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue';
+import { computed, onMounted, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 
 import { useAuthStore } from '@/stores/auth.store';
 import { useDashboardStore } from '@/stores/dashboard.store';
+import { useIntegrationsStore } from '@/stores/integrations.store';
 
 const authStore = useAuthStore();
 const dashboardStore = useDashboardStore();
+const integrationsStore = useIntegrationsStore();
 
 const { user } = storeToRefs(authStore);
 const { summary, loading, error } = storeToRefs(dashboardStore);
+const { syncStatus } = storeToRefs(integrationsStore);
 
 const displayName = computed(() => {
   // Prefer tenant name (company name) over user full name or email
@@ -137,6 +140,16 @@ const messageTimestamp = (message: {
 const refresh = async () => {
   await dashboardStore.fetchSummary().catch(() => undefined);
 };
+
+// Watch for sync completion to refresh dashboard data
+let previousSyncStatus = syncStatus.value;
+watch(syncStatus, (newStatus) => {
+  // If sync just completed (changed from 'syncing' to 'completed'), refresh dashboard
+  if (previousSyncStatus === 'syncing' && newStatus === 'completed') {
+    void refresh();
+  }
+  previousSyncStatus = newStatus;
+});
 
 onMounted(() => {
   if (!summary.value) {

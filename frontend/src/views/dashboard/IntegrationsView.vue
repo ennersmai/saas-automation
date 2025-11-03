@@ -196,6 +196,16 @@ const handleTwilioSubmit = async () => {
                 Re-sync
               </button>
             </div>
+            <div
+              v-if="syncStatus === 'syncing'"
+              class="rounded-lg bg-primary/10 px-3 py-2 text-xs text-content"
+            >
+              <p class="font-medium">
+                {{
+                  !lastSyncAt ? 'First sync may take a few minutes...' : 'Syncing reservations...'
+                }}
+              </p>
+            </div>
             <div v-if="lastSyncAt" class="text-xs text-content-muted">
               Last sync: {{ formatLastSync(lastSyncAt) }}
             </div>
