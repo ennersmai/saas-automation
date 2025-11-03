@@ -278,15 +278,13 @@ export const useAuthStore = defineStore('auth', () => {
       if (!session.value) {
         // Check if we have user data but no session (email verification pending)
         if (data.user && !data.user.email_confirmed_at) {
-          if (import.meta.env.DEV) {
-            console.warn('Email verification required, but continuing in development mode');
-            // In development mode, we'll try to continue without a session
-            // The user will need to verify their email later
-          } else {
-            throw new Error(
-              'Sign up succeeded, but verification is required. Check your email before continuing.',
-            );
-          }
+          // Email verification is required - return a special flag instead of throwing
+          // This allows the UI to show a success message instead of an error
+          const verificationError = new Error(
+            'Sign up succeeded, but verification is required. Check your email before continuing.',
+          ) as Error & { requiresVerification: boolean };
+          verificationError.requiresVerification = true;
+          throw verificationError;
         } else {
           throw new Error('Sign up succeeded, but no active session was returned.');
         }

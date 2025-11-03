@@ -16,16 +16,26 @@ const form = reactive({
 
 const submitError = ref<string | null>(null);
 
+const verificationPending = ref(false);
+
 const handleSubmit = async () => {
   submitError.value = null;
+  verificationPending.value = false;
 
   try {
     await authStore.register({ ...form });
     await router.replace({ name: 'dashboard' });
-  } catch (err) {
+  } catch (err: any) {
     console.error('Registration failed', err);
-    submitError.value =
-      error.value ?? 'Registration failed. Please review the details and try again.';
+
+    // Check if this is an email verification requirement (not a real error)
+    if (err?.requiresVerification || err?.message?.includes('verification is required')) {
+      verificationPending.value = true;
+      submitError.value = null;
+    } else {
+      submitError.value =
+        error.value ?? 'Registration failed. Please review the details and try again.';
+    }
   }
 };
 </script>
@@ -105,7 +115,20 @@ const handleSubmit = async () => {
           </div>
 
           <div class="md:col-span-2">
-            <div v-if="submitError" class="rounded-lg bg-danger/10 px-4 py-3 text-sm text-danger">
+            <div
+              v-if="verificationPending"
+              class="rounded-lg bg-green-50 px-4 py-3 text-sm text-green-800 dark:bg-green-900/20 dark:text-green-400"
+            >
+              <p class="font-semibold">Account created successfully!</p>
+              <p class="mt-1">
+                Please check your email ({{ form.email }}) and click the verification link to
+                activate your account. You'll be redirected to the dashboard after verification.
+              </p>
+            </div>
+            <div
+              v-else-if="submitError"
+              class="rounded-lg bg-danger/10 px-4 py-3 text-sm text-danger"
+            >
               {{ submitError }}
             </div>
           </div>
