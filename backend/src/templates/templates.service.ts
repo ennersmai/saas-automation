@@ -10,7 +10,6 @@ export type ProactiveMessageType =
   | 'door_code_3h'
   | 'same_day_checkin'
   | 'checkout_morning'
-  | 'post_booking_followup'
   | 'pre_checkout_evening'
   | 'message_received_keyword'
   | 'host_message_reply';

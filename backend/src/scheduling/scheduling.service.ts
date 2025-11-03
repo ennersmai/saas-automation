@@ -19,7 +19,6 @@ export type ProactiveMessageType =
   | 'door_code_3h'
   | 'same_day_checkin'
   | 'checkout_morning'
-  | 'post_booking_followup'
   | 'pre_checkout_evening';
 
 interface ScheduleOptions {
@@ -41,7 +40,6 @@ const PROACTIVE_MESSAGE_LABELS: Record<ProactiveMessageType, string> = {
   door_code_3h: '3h Pre-Check-in Door Code',
   same_day_checkin: 'Same-Day Booking Instant Code',
   checkout_morning: 'Checkout Morning Reminder',
-  post_booking_followup: 'Post-booking Follow-up',
   pre_checkout_evening: 'Pre-Checkout Evening Reminder',
 };
 
@@ -357,16 +355,6 @@ export class SchedulingService {
       pushPlan('pre_checkout_evening', evening);
     }
 
-    // Post-booking follow-up N hours after reservationDate (default 6h)
-    const reservationLocal = this.resolveReservationCreatedLocal(reservation, timezone);
-    if (reservationLocal && !options.initialSync) {
-      const followup = addHours(
-        reservationLocal,
-        Number(process.env.POST_BOOKING_FOLLOWUP_HOURS ?? 6),
-      );
-      pushPlan('post_booking_followup', followup);
-    }
-
     return plans;
   }
 
@@ -492,10 +480,9 @@ export class SchedulingService {
     ];
     const matched = keywords.find((x) => lower.includes(x.k));
     if (matched) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const tpl = await this.templatesService.getTemplateForMessage(
         tenant.id,
-        'message_received_keyword' as any,
+        'message_received_keyword',
       );
       if (tpl) {
         const listingId = this.readString(

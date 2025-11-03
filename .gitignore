@@ -58,3 +58,6 @@ vitest.config.*.timestamp*
 # Logs
 logs/
 *.log
+
+# Markdown files
+*.md
