@@ -8,6 +8,7 @@ import { NestFactory } from '@nestjs/core';
 import * as express from 'express';
 
 import { AppModule } from './app/app.module';
+import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 
 const isPgShutdownError = (error: unknown): boolean => {
   if (!error || typeof error !== 'object') {
@@ -82,6 +83,9 @@ async function bootstrap() {
   });
 
   app.use('/webhooks/stripe', express.raw({ type: 'application/json' }));
+
+  // Global exception filter to catch all errors and return proper HTTP responses
+  app.useGlobalFilters(new AllExceptionsFilter());
 
   const globalPrefix = 'api';
   app.setGlobalPrefix(globalPrefix);

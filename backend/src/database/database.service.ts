@@ -29,17 +29,13 @@ export class DatabaseService implements OnModuleDestroy {
       allowExitOnIdle: true,
     });
 
-    // Improved error handling - completely silent, just reset the pool
-    // Don't let pool errors propagate or break the app
-    pool.on('error', () => {
-      // Silently handle pool errors - just mark pool as unhealthy
-      // The pool will be automatically recreated on next database operation
+    // Log pool errors but handle them gracefully
+    pool.on('error', (error) => {
+      this.logger.warn('Database pool error detected, will recreate pool on next operation', error);
+      // Mark pool as unhealthy so it gets recreated
       if (this.pool === pool) {
         this.pool = null;
       }
-
-      // Don't log or throw - these are expected in development with hot reloads
-      // The error is handled by recreating the pool on next use
     });
 
     // Handle connection errors gracefully
@@ -135,83 +131,121 @@ export class DatabaseService implements OnModuleDestroy {
   }
 
   async runQuery<T = unknown>(text: string, params: unknown[] = []): Promise<QueryResult<T>> {
-    try {
-      return await this.withRetry(async () => {
-        try {
-          const pool = this.getPool();
-          return await pool.query<T>(text, params);
-        } catch (error) {
-          // If query fails, mark pool as potentially broken
-          if (this.isRecoverableError(error)) {
-            this.pool = null;
+    // Add timeout wrapper to prevent hanging
+    const queryPromise = (async () => {
+      try {
+        return await this.withRetry(async () => {
+          try {
+            const pool = this.getPool();
+            return await pool.query<T>(text, params);
+          } catch (error) {
+            // If query fails, mark pool as potentially broken
+            if (this.isRecoverableError(error)) {
+              this.pool = null;
+            }
+            throw error;
           }
-          throw error;
+        });
+      } catch (error) {
+        // If retry failed, try one more time with a fresh pool
+        if (this.isRecoverableError(error)) {
+          this.pool = null;
+          try {
+            const pool = this.getPool();
+            return await pool.query<T>(text, params);
+          } catch {
+            // Final failure - throw the original error
+            throw error;
+          }
         }
-      });
-    } catch (error) {
-      // If retry failed, try one more time with a fresh pool
-      if (this.isRecoverableError(error)) {
-        this.pool = null;
-        try {
-          const pool = this.getPool();
-          return await pool.query<T>(text, params);
-        } catch {
-          // Final failure - throw the original error
-          throw error;
-        }
+        throw error;
       }
+    })();
+
+    // Add 30 second timeout
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error('Database query timeout after 30 seconds'));
+      }, 30000);
+    });
+
+    try {
+      return await Promise.race([queryPromise, timeoutPromise]);
+    } catch (error) {
+      this.logger.error('Database query failed or timed out', error as Error);
       throw error;
     }
   }
 
   async withClient<T>(callback: (client: PoolClient) => Promise<T>): Promise<T> {
-    try {
-      return await this.withRetry(async () => {
-        const pool = this.getPool();
-        let client: PoolClient | null = null;
-        try {
-          client = await pool.connect();
-          return await callback(client);
-        } catch (error) {
-          // If operation fails, mark pool as potentially broken
-          if (this.isRecoverableError(error)) {
-            this.pool = null;
-          }
-          throw error;
-        } finally {
-          // Always release client, even if there was an error
-          if (client) {
-            try {
-              client.release();
-            } catch {
-              // If release fails, the connection is likely broken - mark pool as unhealthy
+    // Add timeout wrapper to prevent hanging
+    const operationPromise = (async () => {
+      try {
+        return await this.withRetry(async () => {
+          const pool = this.getPool();
+          let client: PoolClient | null = null;
+          try {
+            client = await pool.connect();
+            return await callback(client);
+          } catch (error) {
+            // If operation fails, mark pool as potentially broken
+            if (this.isRecoverableError(error)) {
               this.pool = null;
-              // Don't log - just silently reset
+            }
+            throw error;
+          } finally {
+            // Always release client, even if there was an error
+            if (client) {
+              try {
+                client.release();
+              } catch (releaseError) {
+                // If release fails, the connection is likely broken - mark pool as unhealthy
+                this.logger.warn('Failed to release database client', releaseError as Error);
+                this.pool = null;
+              }
+            }
+          }
+        });
+      } catch (error) {
+        // If retry failed, try one more time with a fresh pool
+        if (this.isRecoverableError(error)) {
+          this.pool = null;
+          const pool = this.getPool();
+          let client: PoolClient | null = null;
+          try {
+            client = await pool.connect();
+            return await callback(client);
+          } catch {
+            throw error; // Throw original error
+          } finally {
+            if (client) {
+              try {
+                client.release();
+              } catch (releaseError) {
+                this.logger.warn(
+                  'Failed to release database client on retry',
+                  releaseError as Error,
+                );
+                this.pool = null;
+              }
             }
           }
         }
-      });
-    } catch (error) {
-      // If retry failed, try one more time with a fresh pool
-      if (this.isRecoverableError(error)) {
-        this.pool = null;
-        const pool = this.getPool();
-        let client: PoolClient | null = null;
-        try {
-          client = await pool.connect();
-          return await callback(client);
-        } catch {
-          throw error; // Throw original error
-        } finally {
-          if (client) {
-            try {
-              client.release();
-            } catch {
-              this.pool = null;
-            }
-          }
-        }
+        throw error;
       }
+    })();
+
+    // Add 30 second timeout
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error('Database operation timeout after 30 seconds'));
+      }, 30000);
+    });
+
+    try {
+      return await Promise.race([operationPromise, timeoutPromise]);
+    } catch (error) {
+      this.logger.error('Database operation failed or timed out', error as Error);
       throw error;
     }
   }

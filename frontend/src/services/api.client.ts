@@ -7,7 +7,7 @@ export const authEvents = new EventTarget();
 const apiClient: AxiosInstance = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL ?? '/api',
   withCredentials: true,
-  timeout: 120000, // 2 minutes timeout for long operations like Hostaway sync
+  timeout: 35000, // 35 seconds timeout (slightly longer than database 30s timeout)
 });
 
 apiClient.interceptors.request.use(async (config) => {
@@ -31,8 +31,22 @@ apiClient.interceptors.request.use(async (config) => {
 apiClient.interceptors.response.use(
   (response) => response,
   (error: AxiosError) => {
+    // Handle 401 - unauthorized
     if (error.response?.status === 401 && typeof window !== 'undefined') {
       authEvents.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+    }
+
+    // Handle timeout errors
+    if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+      console.error('Request timeout:', error.config?.url);
+      // Return a more user-friendly error
+      error.message = 'Request timed out. Please try again.';
+    }
+
+    // Handle network errors
+    if (!error.response && error.request) {
+      console.error('Network error - backend may be unavailable:', error.message);
+      error.message = 'Unable to connect to server. Please check your connection and try again.';
     }
 
     return Promise.reject(error);
