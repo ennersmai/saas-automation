@@ -204,11 +204,55 @@ export class IntegrationsService {
 
       this.logger.log(`Starting Hostaway sync for tenant ${tenantId} from ${today}...`);
 
-      // Fetch all reservations with arrival dates from today onwards (no end date)
-      // Note: sortOrder 'arrivalDate' will be applied as default by listReservationsWithQuery
-      const allReservations = await this.hostawayClient.listReservationsWithQuery(token, {
-        arrivalStartDate: today,
-      });
+      // Calculate date 7 days ago for fetching active stays
+      const sevenDaysAgo = new Date(zonedNow);
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      const sevenDaysAgoStr = sevenDaysAgo.toISOString().split('T')[0];
+
+      // Fetch reservations in two batches:
+      // 1. Future reservations (from today onwards)
+      // 2. Recent reservations (last 7 days) to catch active stays
+      const [futureReservations, recentReservations] = await Promise.all([
+        this.hostawayClient.listReservationsWithQuery(token, {
+          arrivalStartDate: today,
+        }),
+        this.hostawayClient.listReservationsWithQuery(token, {
+          arrivalStartDate: sevenDaysAgoStr,
+          arrivalEndDate: today,
+        }),
+      ]);
+
+      // Combine and deduplicate by reservation ID
+      const reservationMap = new Map<string, Record<string, unknown>>();
+      for (const reservation of futureReservations) {
+        const id = String(reservation.id ?? reservation.reservationId ?? '');
+        if (id) {
+          reservationMap.set(id, reservation);
+        }
+      }
+      for (const reservation of recentReservations) {
+        const id = String(reservation.id ?? reservation.reservationId ?? '');
+        if (id && !reservationMap.has(id)) {
+          // Only include recent reservations that haven't checked out yet
+          // If check-out date can't be determined, include it anyway to be safe
+          const departureDate =
+            reservation.departureDate ??
+            reservation.departure_date ??
+            reservation.checkOut ??
+            reservation.check_out;
+          if (!departureDate) {
+            // No check-out date, include it to be safe (might be active stay)
+            reservationMap.set(id, reservation);
+          } else {
+            const checkOutDate = new Date(String(departureDate));
+            if (!isNaN(checkOutDate.getTime()) && checkOutDate >= now) {
+              reservationMap.set(id, reservation);
+            }
+          }
+        }
+      }
+
+      const allReservations = Array.from(reservationMap.values());
 
       // Filter to only include statuses that represent confirmed bookings or potential bookings
       // Statuses that block calendar: new, modified, ownerStay, pending, awaitingPayment, unconfirmed, awaitingGuestVerification
@@ -229,7 +273,7 @@ export class IntegrationsService {
       });
 
       this.logger.log(
-        `Hostaway sync for tenant ${tenantId} (${automationTimezone}): fetched ${allReservations.length} total future reservations, ${reservations.length} with valid statuses (from ${today} onwards)`,
+        `Hostaway sync for tenant ${tenantId} (${automationTimezone}): fetched ${futureReservations.length} future + ${recentReservations.length} recent reservations, ${allReservations.length} total unique, ${reservations.length} with valid statuses (from ${sevenDaysAgoStr} onwards)`,
       );
 
       // Log sample reservations (first 5) with date fields to verify date parsing

@@ -149,9 +149,9 @@ const messageBubbleClass = (senderType: string) => {
     return 'bg-surface px-4 py-3';
   }
   if (senderType === 'human') {
-    return 'bg-indigo-50 text-primary px-4 py-3';
+    return 'bg-indigo-50 text-primary px-4 py-3 text-left';
   }
-  return 'bg-surface-muted px-4 py-3';
+  return 'bg-surface-muted px-4 py-3 text-left';
 };
 
 const resolveMessageLabel = (messageType: string | null | undefined) => {

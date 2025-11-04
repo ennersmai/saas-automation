@@ -226,9 +226,8 @@ export class ConversationsService {
       tenant,
       conversation.bookingExternalId,
     );
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const listingId = this.readString(
-      reservation as any,
+      reservation as any, // eslint-disable-line @typescript-eslint/no-explicit-any
       'listingMapId',
       'listing_id',
       'propertyId',
@@ -241,9 +240,8 @@ export class ConversationsService {
       propertyName:
         this.readString(listing ?? {}, 'internalListingName') || // Primary: internal listing name (e.g., "Cross Road")
         this.readString(listing ?? {}, 'name') || // Fallback: listing name field
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         this.readString(
-          reservation as any,
+          reservation as any, // eslint-disable-line @typescript-eslint/no-explicit-any
           'listingName',
           'propertyName',
           'listing.name',
@@ -260,9 +258,8 @@ export class ConversationsService {
     const body = this.templatesService.substituteVariables(tpl.template_body, variables);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const phoneNumber = this.readString(reservation as any, 'guestPhone', 'guest_phone', 'phone');
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const hostawayConversationId =
-      conversation.hostawayConversationId ?? this.readString(reservation as any, 'conversationId');
+      conversation.hostawayConversationId ?? this.readString(reservation as any, 'conversationId'); // eslint-disable-line @typescript-eslint/no-explicit-any
     if (phoneNumber) {
       await this.twilioClient.sendWhatsAppMessage(tenant, phoneNumber, body);
     } else if (hostawayConversationId) {
@@ -466,7 +463,8 @@ export class ConversationsService {
 
     // Build complex filter:
     // 1. Show valid upcoming reservations within date range, OR
-    // 2. Show cancelled reservations with recent messages (last 7 days)
+    // 2. Show active stays (checked in but not yet checked out), OR
+    // 3. Show cancelled reservations with recent messages (last 7 days)
     const cancelledWithRecentMessages = `(
       lower(coalesce(b.status, '')) = 'cancelled'
       AND EXISTS (
@@ -477,6 +475,13 @@ export class ConversationsService {
       )
     )`;
 
+    const activeStays = `(
+      b.check_in_at IS NOT NULL
+      AND b.check_in_at < now()
+      AND (b.check_out_at IS NULL OR b.check_out_at > now())
+      AND lower(coalesce(b.status, '')) != 'cancelled'
+    )`;
+
     const validUpcoming = `(
       (b.check_in_at IS NULL OR b.check_in_at >= now())
       AND (b.check_in_at IS NULL OR b.check_in_at <= CAST($${paramIndex} AS timestamp))
@@ -485,7 +490,7 @@ export class ConversationsService {
 
     params.push(cutoffDateStr);
     paramIndex++;
-    conditions.push(`(${validUpcoming} OR ${cancelledWithRecentMessages})`);
+    conditions.push(`(${validUpcoming} OR ${activeStays} OR ${cancelledWithRecentMessages})`);
 
     // Debug: Log total conversations vs filtered
     const allCountResult = await this.databaseService.runQuery<{ count: string }>(
